@@ -142,11 +142,15 @@ namespace folly {
 
 // Thrown when insertion fails due to running out of space for
 // submaps.
+// 这里相当于是说如果insert fail的时候报错
 struct FOLLY_EXPORT AtomicHashMapFullError : std::runtime_error {
   explicit AtomicHashMapFullError()
       : std::runtime_error("AtomicHashMap is full") {}
 };
 
+
+// 一个非常大的模板HashMap函数
+// 对健, 值, hash函数, =函数, allocator, probe函数, 健的转换函数都做模板化
 template <
     class KeyT,
     class ValueT,

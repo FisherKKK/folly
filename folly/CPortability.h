@@ -198,6 +198,7 @@
 
 /**
  * Macro for marking functions as having public visibility.
+ * 定义函数的公共可见性, 主力主要是针对GNUC编译器
  */
 #if defined(__GNUC__)
 #define FOLLY_EXPORT __attribute__((__visibility__("default")))
