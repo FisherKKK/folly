@@ -28,6 +28,7 @@
 namespace folly {
 
 // AtomicHashArray private constructor --
+// 构造函数
 template <
     class KeyT,
     class ValueT,
@@ -72,6 +73,8 @@ AtomicHashArray<
  *   Sets ret.second to value found and ret.index to index
  *   of key and returns true, or if key does not exist returns false and
  *   ret.index is set to capacity_.
+ *
+ *   这里的typename关键字相当于指示这是一个类型
  */
 template <
     class KeyT,
@@ -104,6 +107,7 @@ AtomicHashArray<
               numProbes = 0;
        ;
        idx = ProbeFcn()(idx, numProbes, capacity_)) {
+    // 原子load key
     const KeyT key = acquireLoadKey(cells_[idx]);
     if (FOLLY_LIKELY(LookupEqualFcn()(key, key_in))) {
       return SimpleRetT(idx, true);
@@ -115,6 +119,8 @@ AtomicHashArray<
     // NOTE: the way we count numProbes must be same in find(), insert(),
     // and erase(). Otherwise it may break probing.
     ++numProbes;
+
+    // 探测函数指导下一次探测在哪
     if (FOLLY_UNLIKELY(numProbes >= capacity_)) {
       // probed every cell...fail
       return SimpleRetT(capacity_, false);
@@ -171,11 +177,15 @@ AtomicHashArray<
   for (;;) {
     DCHECK_LT(idx, capacity_);
     value_type* cell = &cells_[idx];
+
+    // 只是检测一下这个值, 如果为空, 那么表示确实可以试一试insert
     if (relaxedLoadKey(*cell) == kEmptyKey_) {
       // NOTE: isFull_ is set based on numEntries_.readFast(), so it's
       // possible to insert more than maxEntries_ entries. However, it's not
       // possible to insert past capacity_.
       ++numPendingEntries_;
+
+      // 如果满了
       if (isFull_.load(std::memory_order_acquire)) {
         --numPendingEntries_;
 
@@ -186,6 +196,8 @@ AtomicHashArray<
         // another thread now does ++numPendingEntries_, we expect it
         // to pass the isFull_.load() test above. (It shouldn't insert
         // a new entry.)
+
+        // numPendingEntries相当于等到等待最后一个pending的人走后
         detail::atomic_hash_spin_wait([&] {
           return (isFull_.load(std::memory_order_acquire) !=
                   NO_PENDING_INSERTS) &&
@@ -244,6 +256,8 @@ AtomicHashArray<
       }
     }
     DCHECK(relaxedLoadKey(*cell) != kEmptyKey_);
+
+    // 如果这个cell被锁定了
     if (kLockedKey_ == acquireLoadKey(*cell)) {
       detail::atomic_hash_spin_wait([&] {
         return kLockedKey_ == acquireLoadKey(*cell);
@@ -280,6 +294,7 @@ AtomicHashArray<
  *   This will attempt to erase the given key key_in if the key is found. It
  *   returns 1 iff the key was located and marked as erased, and 0 otherwise.
  *
+ *   erased' key 永远不会
  *   Memory is not freed or reclaimed by erase, i.e. the cell containing the
  *   erased key will never be reused. If there's an associated value, we won't
  *   touch it either.

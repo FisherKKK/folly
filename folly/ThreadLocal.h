@@ -67,16 +67,28 @@ class ThreadLocalPtr;
 template <class T, class Tag = void, class AccessMode = void>
 class ThreadLocal {
  public:
+
+  // constexpr允许在编译期间进行计算
+  // 这种通过传入lambda表达式的方式实际上是一种lazy construction的方式
+  // noexcept表示不会抛出异常, 表示不会有问题
   constexpr ThreadLocal() noexcept : constructor_([]() { return T(); }) {}
 
+  // explicit表示必须进行显示调用
+  // F&&表示通用引用, 配合std::forward实现完美转发
+  // std::enable_if_t是SFINAE, 检查is_invocable_r_v<T, F>表示F可调用, 并且T是返回值
+  // 那么这里的int和0表示什么含义, 如果为true的时候返回int并且默认值是0, 如果false则模板失效
+  // 也就是说不会存在这个函数!
   template <typename F, std::enable_if_t<is_invocable_r_v<T, F>, int> = 0>
   explicit ThreadLocal(F&& constructor)
       : constructor_(std::forward<F>(constructor)) {}
 
+  // 允许所有权进行转让
+  // std::exchange表示返回源对象, 并将源对象置为new val
   ThreadLocal(ThreadLocal&& that) noexcept
       : tlp_{std::move(that.tlp_)},
         constructor_{std::exchange(that.constructor_, {})} {}
 
+  // 移动赋值
   ThreadLocal& operator=(ThreadLocal&& that) noexcept {
     assert(this != &that);
     tlp_ = std::exchange(that.tlp_, {});
@@ -84,6 +96,8 @@ class ThreadLocal {
     return *this;
   }
 
+  // thread local ptr's get method
+  // 表示这个函数是热代码, 需要内联
   FOLLY_ERASE T* get() const {
     auto const ptr = tlp_.get();
     return FOLLY_LIKELY(!!ptr) ? ptr : makeTlp();
@@ -92,8 +106,10 @@ class ThreadLocal {
   // may return null
   FOLLY_ERASE T* get_existing() const { return tlp_.get(); }
 
+  // 重载了->函数, 返回值是一个指针, 类似智能指针底层实现
   T* operator->() const { return get(); }
 
+  // 重载*函数, 返回自己的引用
   T& operator*() const { return *get(); }
 
   void reset(T* newPtr = nullptr) { tlp_.reset(newPtr); }
@@ -103,11 +119,15 @@ class ThreadLocal {
 
  private:
   // non-copyable
+  // 无法拷贝, 删除拷贝构造函数和复制函数
   ThreadLocal(const ThreadLocal&) = delete;
   ThreadLocal& operator=(const ThreadLocal&) = delete;
 
+  // 冷代码不要内联, 提高指令命中率
   FOLLY_NOINLINE T* makeTlp() const {
+    // 构造一个新的对象, 放到tlp中
     auto const ptr = new T(constructor_());
+    // 变量的销毁由tlp负责
     tlp_.reset(ptr);
     return ptr;
   }
@@ -150,6 +170,7 @@ class ThreadLocalPtr {
   using AccessAllThreadsEnabled = Negation<std::is_same<Tag, void>>;
 
  public:
+  // ThreadLocal的指针实现, 延迟id的获取
   constexpr ThreadLocalPtr() noexcept : id_() {}
 
   ThreadLocalPtr(ThreadLocalPtr&& other) noexcept : id_(std::move(other.id_)) {}
@@ -161,10 +182,15 @@ class ThreadLocalPtr {
     return *this;
   }
 
+  // 该对象销毁的时候, 也会销毁T对象
   ~ThreadLocalPtr() { destroy(); }
 
   T* get() const {
+    // 每个线程专属id去fetch content
+    // StaticMeta是一个全局注册中心
+    // 该对象本身不存储T, 仅仅持有id, 通过id索引到该内容
     threadlocal_detail::ElementWrapper& w = StaticMeta::get(&id_);
+    // 将content中的内容返回
     return static_cast<T*>(w.ptr);
   }
 
@@ -182,14 +208,19 @@ class ThreadLocalPtr {
   }
 
   void reset(T* newPtr = nullptr) {
+    // Fork了一把锁
     auto rlocked = getForkGuard();
+    // 锁做一个guard, 如果正常析构就delete newPtr, RAII异常卫士
     auto guard = makeGuard([&] { delete newPtr; });
+    // 获取内容
     threadlocal_detail::ThreadEntry* te = StaticMeta::getThreadEntry(&id_);
+    // 获取id
     uint32_t id = id_.getOrInvalid();
     // Only valid index into the elements array
     DCHECK_NE(id, threadlocal_detail::kEntryIDInvalid);
+    // 重置内容
     te->resetElement(newPtr, id);
-    guard.dismiss();
+    guard.dismiss(); // 解除异常
   }
 
   explicit operator bool() const { return get() != nullptr; }
@@ -459,10 +490,12 @@ class ThreadLocalPtr {
 
  private:
   void destroy() noexcept {
+    // 因为仅仅针对这个线程自己, 所以不在乎别人
     auto const val = id_.value.load(std::memory_order_relaxed);
     if (val == threadlocal_detail::kEntryIDInvalid) {
       return;
     }
+    // 从全局注册中心中删除该id所属内容
     StaticMeta::instance().destroy(&id_);
   }
 
@@ -475,6 +508,7 @@ class ThreadLocalPtr {
     return std::shared_lock{mutex};
   }
 
+  // 每个ThreadLocalPtr都会存在一个id
   mutable typename StaticMeta::EntryID id_;
 };
 

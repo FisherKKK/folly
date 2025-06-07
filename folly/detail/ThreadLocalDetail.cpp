@@ -263,8 +263,10 @@ uint32_t StaticMetaBase::elementsCapacity() const {
 uint32_t StaticMetaBase::allocate(EntryID* ent) {
   uint32_t id;
   auto& meta = *this;
+  // 上锁
   std::lock_guard g(meta.lock_);
 
+  // 因为上锁了可以保证强一致性, 所以这里用的是最松弛的原子变量
   id = ent->value.load(std::memory_order_relaxed);
 
   if (id == kEntryIDInvalid) {
@@ -274,6 +276,8 @@ uint32_t StaticMetaBase::allocate(EntryID* ent) {
     } else {
       id = meta.nextId_++;
     }
+
+    // 交换id并返回
     uint32_t old_id = ent->value.exchange(id, std::memory_order_release);
     DCHECK_EQ(old_id, kEntryIDInvalid);
   }

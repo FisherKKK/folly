@@ -47,6 +47,8 @@
 #endif
 #endif
 
+// 这个宏命令用来判断是否存在内置的函数
+// 引入可变参数宏
 #if defined(__has_builtin)
 #define FOLLY_HAS_BUILTIN(...) __has_builtin(__VA_ARGS__)
 #else
@@ -278,6 +280,7 @@
 //  as each compiler supports.
 //
 //  Semantically includes the inline specifier.
+// 这里相当于强制所有的inline
 #define FOLLY_ERASE FOLLY_ALWAYS_INLINE FOLLY_ATTR_VISIBILITY_HIDDEN
 
 //  FOLLY_ERASE_NOINLINE

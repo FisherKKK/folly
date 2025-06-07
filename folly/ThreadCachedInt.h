@@ -36,9 +36,11 @@ class ThreadCachedInt {
   struct IntCache;
 
  public:
+  // 必须显式进行构造
   explicit ThreadCachedInt(IntT initialVal = 0, uint32_t cacheSize = 1000)
       : target_(initialVal), cacheSize_(cacheSize) {}
 
+  // 删除copy
   ThreadCachedInt(const ThreadCachedInt&) = delete;
   ThreadCachedInt& operator=(const ThreadCachedInt&) = delete;
 

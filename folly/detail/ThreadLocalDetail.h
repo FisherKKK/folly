@@ -56,6 +56,7 @@ struct AccessModeStrict {};
 
 namespace threadlocal_detail {
 
+// 相当于这里是一个Invalid entry id
 constexpr uint32_t kEntryIDInvalid = std::numeric_limits<uint32_t>::max();
 
 //  as a memory-usage optimization, try to make this deleter fit in-situ in
@@ -412,8 +413,11 @@ struct StaticMetaBase {
    public:
     std::atomic<uint32_t> value;
 
+    // 默认构造是invalid id
     constexpr EntryID() : value(kEntryIDInvalid) {}
 
+    // 这里的load都是强制最高一致性
+    // move构造函数
     EntryID(EntryID&& other) noexcept : value(other.value.load()) {
       other.value = kEntryIDInvalid;
     }
@@ -426,17 +430,22 @@ struct StaticMetaBase {
       return *this;
     }
 
+    // 删除所有的copy
     EntryID(const EntryID& other) = delete;
     EntryID& operator=(const EntryID& other) = delete;
 
+    // 获取entry id, 这里相当于是消费者, 所以采用的ac
+    // ac不允许任何的读写重排到这个指令之前
     uint32_t getOrInvalid() { return value.load(std::memory_order_acquire); }
 
+    // 如果不存在分配一个新的值
     uint32_t getOrAllocate(StaticMetaBase& meta) {
       uint32_t id = getOrInvalid();
       if (id != kEntryIDInvalid) {
         return id;
       }
       // The lock inside allocate ensures that a single value is allocated
+      // lock之后分配一个新的值
       return meta.allocate(this);
     }
   };

@@ -38,16 +38,19 @@
 
 namespace folly {
 
+// 线性探测函数
 struct AtomicHashArrayLinearProbeFcn {
   inline size_t operator()(
       size_t idx, size_t /* numProbes */, size_t capacity) const {
     idx += 1; // linear probing
 
     // Avoid modulus because it's slow
+    // 避免%因为太慢了, 这里采用LIKELY语句指示编译器进行优化
     return FOLLY_LIKELY(idx < capacity) ? idx : (idx - capacity);
   }
 };
 
+// 平方探测函数
 struct AtomicHashArrayQuadraticProbeFcn {
   inline size_t operator()(
       size_t idx, size_t numProbes, size_t capacity) const {
@@ -76,6 +79,8 @@ inline void checkLegalKeyIfKeyTImpl(
 }
 } // namespace detail
 
+
+// 前向声明
 template <
     class KeyT,
     class ValueT,
@@ -95,6 +100,10 @@ template <
     class ProbeFcn = AtomicHashArrayLinearProbeFcn,
     class KeyConvertFcn = Identity>
 class AtomicHashArray {
+
+  // 相当于这里是判断是否可以进行类型转换,
+  // 那么这里整体都是在编译期间进行的
+  // static_assert是一个编译期间断言
   static_assert(
       (std::is_convertible<KeyT, int32_t>::value ||
        std::is_convertible<KeyT, int64_t>::value ||
@@ -109,23 +118,33 @@ class AtomicHashArray {
   typedef HashFcn hasher;
   typedef EqualFcn key_equal;
   typedef KeyConvertFcn key_convert;
+
+  // 相当于这里是探测中`值`的类型, 这是const KeyT
   typedef std::pair<const KeyT, ValueT> value_type;
   typedef std::size_t size_type;
+  // diff类型
   typedef std::ptrdiff_t difference_type;
+  //! 还可以定义引用类型?
   typedef value_type& reference;
+  //! 常量引用类型
   typedef const value_type& const_reference;
+  // 指针类型
   typedef value_type* pointer;
+  // 常量指针类型
   typedef const value_type* const_pointer;
 
+  // 这些值都是常量, 必须在构造的时候初始化
   const size_t capacity_;
   const size_t maxEntries_;
   const KeyT kEmptyKey_;
   const KeyT kLockedKey_;
   const KeyT kErasedKey_;
 
+  // 前向声明的迭代器
   template <class ContT, class IterVal>
   struct aha_iterator;
 
+  // 实例化的迭代器: 分为常量迭代器和原生的迭代器
   typedef aha_iterator<const AtomicHashArray, const value_type> const_iterator;
   typedef aha_iterator<AtomicHashArray, value_type> iterator;
 
@@ -133,16 +152,20 @@ class AtomicHashArray {
   // but if you really want to do something crazy like stick the released
   // pointer into a DescriminatedPtr or something, you'll need this to clean up
   // after yourself.
+  //TODO: 看不懂
   static void destroy(AtomicHashArray*);
 
  private:
   const size_t kAnchorMask_;
 
+  // 定义了内部的删除函数
   struct Deleter {
     void operator()(AtomicHashArray* ptr) { AtomicHashArray::destroy(ptr); }
   };
 
  public:
+  // 定义智能指针
+  // 相当于unique_ptr指定特殊的析构函数
   typedef std::unique_ptr<AtomicHashArray, Deleter> SmartPtr;
 
   /*
@@ -250,6 +273,11 @@ class AtomicHashArray {
    *   different from that stored in the table; see find(). If and only if no
    *   equal key is already present, this method converts 'key_in' to a key of
    *   type KeyT using the provided LookupKeyToKeyFcn.
+   *
+   *   !!!用法解析:
+   *   typename... ArgTs表示可变参数模板, 相当于是参数类型的pack
+   *   ArgTs&&... 相当于是完美转发, 在模板中也被成为转发引用, 能够保持原本值的类型比如左值引用和右值引用
+   *   std::forward就相当于能够保持这些值的类型, 还原原本的引用. 因为在函数调用中, 有名的参数变成了左值
    */
   template <
       typename LookupKeyT = key_type,
@@ -258,6 +286,7 @@ class AtomicHashArray {
       typename LookupKeyToKeyFcn = key_convert,
       typename... ArgTs>
   std::pair<iterator, bool> emplace(LookupKeyT key_in, ArgTs&&... vCtorArgs) {
+    // 还进行了参数转发
     SimpleRetT ret = insertInternal<
         LookupKeyT,
         LookupHashFcn,
@@ -326,6 +355,7 @@ class AtomicHashArray {
   /* Private data and helper functions... */
 
  private:
+  // 定义友元
   friend class AtomicHashMap<
       KeyT,
       ValueT,
@@ -334,6 +364,7 @@ class AtomicHashArray {
       Allocator,
       ProbeFcn>;
 
+  // 简单的返回值吗
   struct SimpleRetT {
     size_t idx;
     bool success;
@@ -364,6 +395,7 @@ class AtomicHashArray {
     // We need some illegal casting here in order to actually store
     // our value_type as a std::pair<const,>.  But a little bit of
     // undefined behavior never hurt anyone ...
+    // value_type是(key, value)的pair, 因为是const, 首先翻译成atomic const * --> atomic *
     static_assert(
         sizeof(std::atomic<KeyT>) == sizeof(KeyT),
         "std::atomic is implemented in an unexpected way for AHM");
@@ -372,10 +404,13 @@ class AtomicHashArray {
   }
 
   static KeyT relaxedLoadKey(const value_type& r) {
+    // 只保证自己看的有效性, 不进行任何操作
     return cellKeyPtr(r)->load(std::memory_order_relaxed);
   }
 
+  // acquire的方式load  key
   static KeyT acquireLoadKey(const value_type& r) {
+    // acquire说的就是任何写操作无法重排到这个指令之前
     return cellKeyPtr(r)->load(std::memory_order_acquire);
   }
 
@@ -385,6 +420,7 @@ class AtomicHashArray {
   // reading the value, so be careful of calling size() too frequently.  This
   // increases insertion throughput several times over while keeping the count
   // accurate.
+  // 相当于每个thread单独记录自己的count
   ThreadCachedInt<uint64_t> numEntries_; // Successful key inserts
   ThreadCachedInt<uint64_t> numPendingEntries_; // Used by insertInternal
   std::atomic<int64_t> isFull_; // Used by insertInternal
@@ -428,4 +464,5 @@ class AtomicHashArray {
 
 } // namespace folly
 
+// 在结尾进行include inl
 #include <folly/AtomicHashArray-inl.h>

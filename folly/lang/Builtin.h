@@ -54,12 +54,17 @@ namespace builtin {
 
 namespace detail {
 
+// 这里相当于是LIKELY HINT的手动实现
 template <typename V>
 struct predict_constinit_ {
+  // 该结构体的构造函数, 接受类型V
   FOLLY_ERASE FOLLY_CONSTEVAL /* implicit */ predict_constinit_(
       V /* anonymous */) noexcept {}
 };
 
+
+// 这里相当于是一个函数调用, 返回本身
+// 同样这也是一个常量函数
 template <typename E>
 FOLLY_ERASE constexpr E predict_(
     E exp,

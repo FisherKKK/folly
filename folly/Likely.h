@@ -40,7 +40,8 @@
 
 /**
  * Treat the condition as likely.
- *
+ * 相当于这里是手动给编译器的优化提示
+ * `...`引入了可变参数宏, 可以接受多个参数, 展开时呗VA_ARGS替换
  * @def FOLLY_LIKELY
  */
 #define FOLLY_LIKELY(...) FOLLY_BUILTIN_EXPECT((__VA_ARGS__), 1)
